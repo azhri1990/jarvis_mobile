@@ -6,6 +6,8 @@ class SpeechController extends ChangeNotifier {
   bool _speechEnabled = false;
   String _lastWords = '';
 
+  Future<void> Function(String command)? onFinalCommand;
+
   // Getter Methods
 
   bool get speechEnabled => _speechEnabled;
@@ -43,6 +45,8 @@ class SpeechController extends ChangeNotifier {
         notifyListeners();
 
         if (result.finalResult) {
+          final command = _lastWords.trim();
+          if (command.isNotEmpty) onFinalCommand?.call(command);
           notifyListeners();
         }
       },
