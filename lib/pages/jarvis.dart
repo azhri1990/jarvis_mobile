@@ -172,9 +172,11 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
               _Header(isListening: isListening, onSettings: _editConnection, onCheck: _checkGateway),
               const SizedBox(height: 18),
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
+                child: SingleChildScrollView(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                     AnimatedBuilder(
                       animation: _pulse,
                       builder: (context, child) => CustomPaint(
@@ -251,7 +253,9 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
                         ),
                       ),
                     ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
               Row(children: [
