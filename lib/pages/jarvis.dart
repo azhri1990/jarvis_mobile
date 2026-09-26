@@ -238,9 +238,8 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
       _endConversation();
     } else if (speech.isListening) {
       speech.stopListening();
-    } else if (speech.speechEnabled) {
-      _tts.stop();
-      speech.startListening();
+    } else {
+      _startConversation();
     }
   }
 
