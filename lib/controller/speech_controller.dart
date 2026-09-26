@@ -40,6 +40,8 @@ class SpeechController extends ChangeNotifier {
   Future<void> startListening() async {
     _lastWords = "";
     await _speechToText.listen(
+      // Without an explicit locale, the device language (e.g. Malay/Tamil) is used.
+      localeId: 'en_US',
       onResult: (result) {
         _lastWords = result.recognizedWords;
         notifyListeners();
