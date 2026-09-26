@@ -14,11 +14,18 @@ class Jarvis extends StatefulWidget {
 class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
   final _commandController = TextEditingController();
+  SpeechController? _speech;
   String _gatewayUrl = 'http://127.0.0.1:5000';
   String _gatewayToken = '';
   String _gatewayStatus = 'NOT CHECKED';
   String _response = 'Ready. Connect to your local JARVIS gateway.';
   bool _busy = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _speech ??= context.read<SpeechController>();
+  }
 
   @override
   void initState() {
@@ -28,13 +35,13 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
       duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<SpeechController>().onFinalCommand = _sendCommand;
+      if (mounted) _speech?.onFinalCommand = _sendCommand;
     });
   }
 
   @override
   void dispose() {
-    context.read<SpeechController>().onFinalCommand = null;
+    _speech?.onFinalCommand = null;
     _pulse.dispose();
     _commandController.dispose();
     super.dispose();
