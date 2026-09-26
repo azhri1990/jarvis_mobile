@@ -234,7 +234,9 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   }
 
   void _toggleListening(SpeechController speech) {
-    if (_conversation) {
+    if (speech.isListening && speech.lastWords.trim().isNotEmpty) {
+      speech.stopListening();
+    } else if (_conversation) {
       _endConversation();
     } else if (speech.isListening) {
       speech.stopListening();
