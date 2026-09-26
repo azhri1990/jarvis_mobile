@@ -20,6 +20,9 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   String _gatewayStatus = 'NOT CHECKED';
   String _response = 'Ready. Connect to your local JARVIS gateway.';
   bool _busy = false;
+  bool _conversation = false;
+  int _silentTurns = 0;
+  static const _maxSilentTurns = 2;
   late final SpeechController _speech;
   late final TtsController _tts;
 
@@ -33,13 +36,18 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
       duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _speech.onFinalCommand = _sendCommand;
+      if (!mounted) return;
+      _speech.onFinalCommand = _sendCommand;
+      _speech.onSessionEnded = _handleSessionEnded;
+      _tts.onComplete = _handleSpeechFinished;
     });
   }
 
   @override
   void dispose() {
     _speech.onFinalCommand = null;
+    _speech.onSessionEnded = null;
+    _tts.onComplete = null;
     _tts.stop();
     _pulse.dispose();
     _commandController.dispose();
@@ -71,7 +79,7 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
       if (mounted) setState(() => _busy = false);
       final approved = await _confirmSkill(plan, command);
       if (!approved || !mounted) {
-        if (mounted) _showResponse('Canceled: confirmation not granted.');
+        if (mounted) _showResponse('Canceled: confirmation not granted.', speak: true);
         return;
       }
       setState(() => _busy = true);
@@ -81,6 +89,7 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
     setState(() => _busy = false);
     if (!result.ok) {
       _showResponse(result.message);
+      _endConversation();
       return;
     }
     final reply = _replyText(result.payload);
@@ -137,10 +146,62 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
     return approved == true;
   }
 
-  void _showResponse(String text, {bool speak = false}) {
+  Future<void> _showResponse(String text, {bool speak = false}) async {
     if (!mounted) return;
     setState(() => _response = text);
-    if (speak) _tts.speak(text);
+    if (!speak) return;
+    final spoken = await _tts.speak(text);
+    if (!spoken) _handleSpeechFinished();
+  }
+
+  void _handleSpeechFinished() {
+    if (!mounted || !_conversation || _busy) return;
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (mounted && _conversation && !_busy && !_tts.isSpeaking) {
+        _speech.startListening();
+      }
+    });
+  }
+
+  void _handleSessionEnded(bool heardCommand) {
+    if (!mounted || !_conversation) return;
+    if (heardCommand) {
+      _silentTurns = 0;
+      return;
+    }
+    if (_busy || _tts.isSpeaking) return;
+    _silentTurns++;
+    if (_silentTurns > _maxSilentTurns) {
+      _endConversation();
+      _showResponse('Conversation paused. Tap TALK MODE when you need me.');
+      return;
+    }
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted && _conversation && !_busy) _speech.startListening();
+    });
+  }
+
+  void _startConversation() {
+    if (!_speech.speechEnabled) {
+      _showResponse('Microphone is not available. Check permissions.');
+      return;
+    }
+    setState(() {
+      _conversation = true;
+      _silentTurns = 0;
+    });
+    _tts.stop();
+    _speech.startListening();
+  }
+
+  void _endConversation() {
+    if (!_conversation) return;
+    setState(() => _conversation = false);
+    _speech.cancelListening();
+  }
+
+  void _toggleConversation() {
+    _conversation ? _endConversation() : _startConversation();
   }
 
   Future<void> _editConnection() async {
@@ -173,7 +234,9 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   }
 
   void _toggleListening(SpeechController speech) {
-    if (speech.isListening) {
+    if (_conversation) {
+      _endConversation();
+    } else if (speech.isListening) {
       speech.stopListening();
     } else if (speech.speechEnabled) {
       _tts.stop();
@@ -244,7 +307,9 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
                                   ],
                                 ),
                                 child: Icon(
-                                  isListening ? Icons.stop : Icons.mic_none,
+                                  isListening || _conversation
+                                      ? Icons.stop
+                                      : Icons.mic_none,
                                   color: const Color(0xFFB8FCFF),
                                   size: 42,
                                 ),
@@ -260,11 +325,36 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
                           ? 'LISTENING'
                           : tts.isSpeaking
                               ? 'SPEAKING'
-                              : 'JARVIS STANDBY',
+                              : _busy
+                                  ? 'THINKING'
+                                  : 'JARVIS STANDBY',
                       style: GoogleFonts.shareTech(
                         color: const Color(0xFF72F4FF),
                         letterSpacing: 3,
                         fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _toggleConversation,
+                      icon: Icon(
+                        _conversation ? Icons.call_end : Icons.forum_outlined,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _conversation ? 'END TALK MODE' : 'TALK MODE',
+                        style: GoogleFonts.shareTech(letterSpacing: 2),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _conversation
+                            ? const Color(0xFFFFB36B)
+                            : const Color(0xFF72F4FF),
+                        side: BorderSide(
+                          color: _conversation
+                              ? const Color(0xFFFFB36B)
+                              : const Color(0xFF1AB9D0),
+                        ),
+                        shape: const StadiumBorder(),
                       ),
                     ),
                     const SizedBox(height: 14),

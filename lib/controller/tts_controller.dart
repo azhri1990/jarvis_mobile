@@ -6,6 +6,8 @@ class TtsController extends ChangeNotifier {
   bool _enabled = true;
   bool _speaking = false;
 
+  VoidCallback? onComplete;
+
   bool get enabled => _enabled;
   bool get isSpeaking => _speaking;
 
@@ -26,7 +28,10 @@ class TtsController extends ChangeNotifier {
         );
       }
       _tts.setStartHandler(() => _setSpeaking(true));
-      _tts.setCompletionHandler(() => _setSpeaking(false));
+      _tts.setCompletionHandler(() {
+        _setSpeaking(false);
+        onComplete?.call();
+      });
       _tts.setCancelHandler(() => _setSpeaking(false));
       _tts.setErrorHandler((_) => _setSpeaking(false));
     } catch (error) {
@@ -40,11 +45,13 @@ class TtsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> speak(String text) async {
+  /// Returns false when nothing was spoken (muted or empty text).
+  Future<bool> speak(String text) async {
     final message = text.trim();
-    if (!_enabled || message.isEmpty) return;
+    if (!_enabled || message.isEmpty) return false;
     await _tts.stop();
     await _tts.speak(message);
+    return true;
   }
 
   Future<void> stop() async {

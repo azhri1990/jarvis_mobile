@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 class SpeechController extends ChangeNotifier {
-  SpeechToText _speechToText = SpeechToText();
+  final SpeechToText _speechToText = SpeechToText();
   bool _speechEnabled = false;
   String _lastWords = '';
+  bool _sessionActive = false;
+  bool _heardCommand = false;
 
   Future<void> Function(String command)? onFinalCommand;
 
-  // Getter Methods
+  /// Called once when a listening session ends. [heardCommand] is false when
+  /// the session timed out without recognizing any words.
+  void Function(bool heardCommand)? onSessionEnded;
 
   bool get speechEnabled => _speechEnabled;
   String get lastWords => _lastWords;
@@ -22,43 +26,68 @@ class SpeechController extends ChangeNotifier {
     try {
       _speechEnabled = await _speechToText.initialize(
         onStatus: (status) {
-          print("Speech status: $status");
+          debugPrint('Speech status: $status');
           if (status == 'done' || status == 'notListening') {
-            stopListening();
-            notifyListeners();
+            _endSession();
           }
+        },
+        onError: (error) {
+          debugPrint('Speech error: ${error.errorMsg}');
+          _endSession();
         },
       );
     } catch (e) {
-      print("Error in intialization $e");
+      debugPrint('Error in initialization $e');
     }
 
     notifyListeners();
   }
 
-  // Start Method
+  void _endSession() {
+    if (!_sessionActive) {
+      notifyListeners();
+      return;
+    }
+    _sessionActive = false;
+    final heard = _heardCommand;
+    notifyListeners();
+    onSessionEnded?.call(heard);
+  }
+
   Future<void> startListening() async {
-    _lastWords = "";
+    if (!_speechEnabled || _speechToText.isListening) return;
+    _lastWords = '';
+    _heardCommand = false;
+    _sessionActive = true;
     await _speechToText.listen(
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 3),
       onResult: (result) {
         _lastWords = result.recognizedWords;
         notifyListeners();
 
         if (result.finalResult) {
           final command = _lastWords.trim();
-          if (command.isNotEmpty) onFinalCommand?.call(command);
+          if (command.isNotEmpty) {
+            _heardCommand = true;
+            onFinalCommand?.call(command);
+          }
           notifyListeners();
         }
       },
     );
-    // Wait a moment for isListening to become true
-    await Future.delayed(Duration(milliseconds: 100));
+    await Future.delayed(const Duration(milliseconds: 100));
     notifyListeners();
   }
 
-  // Stop Method
-  void stopListening() async {
+  Future<void> stopListening() async {
     await _speechToText.stop();
+    notifyListeners();
+  }
+
+  Future<void> cancelListening() async {
+    _sessionActive = false;
+    await _speechToText.cancel();
     notifyListeners();
   }
 }
