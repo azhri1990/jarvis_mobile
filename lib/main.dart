@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jarvis/controller/speech_controller.dart';
+import 'package:jarvis/controller/tts_controller.dart';
 import 'package:jarvis/pages/jarvis.dart';
 import 'package:provider/provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(ChangeNotifierProvider(
-    create: (context) => SpeechController(),
+  runApp(MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (context) => SpeechController()),
+      ChangeNotifierProvider(create: (context) => TtsController()),
+    ],
     child: MyApp(),
   ));
 }

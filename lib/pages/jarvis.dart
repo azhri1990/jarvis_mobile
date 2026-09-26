@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:jarvis/controller/speech_controller.dart';
+import 'package:jarvis/controller/tts_controller.dart';
 import 'package:jarvis/services/jarvis_gateway.dart';
 import 'package:provider/provider.dart';
 
@@ -19,22 +20,27 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   String _gatewayStatus = 'NOT CHECKED';
   String _response = 'Ready. Connect to your local JARVIS gateway.';
   bool _busy = false;
+  late final SpeechController _speech;
+  late final TtsController _tts;
 
   @override
   void initState() {
     super.initState();
+    _speech = context.read<SpeechController>();
+    _tts = context.read<TtsController>();
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<SpeechController>().onFinalCommand = _sendCommand;
+      if (mounted) _speech.onFinalCommand = _sendCommand;
     });
   }
 
   @override
   void dispose() {
-    context.read<SpeechController>().onFinalCommand = null;
+    _speech.onFinalCommand = null;
+    _tts.stop();
     _pulse.dispose();
     _commandController.dispose();
     super.dispose();
@@ -77,13 +83,29 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
       _showResponse(result.message);
       return;
     }
+    final reply = _replyText(result.payload);
+    if (reply != null) {
+      _showResponse(reply, speak: true);
+      return;
+    }
     final finalPlan = result.payload?['plan'];
     final selectedSkill = finalPlan is Map<String, dynamic>
         ? finalPlan['selected_skill']?.toString()
         : null;
-    _showResponse(selectedSkill == null
-        ? 'Gateway accepted: $command'
-        : 'Skill $selectedSkill approved: command planned.');
+    _showResponse(
+      selectedSkill == null
+          ? 'Gateway accepted: $command'
+          : 'Skill $selectedSkill approved: command planned.',
+      speak: true,
+    );
+  }
+
+  String? _replyText(Map<String, dynamic>? payload) {
+    for (final key in const ['reply', 'response', 'answer', 'text']) {
+      final value = payload?[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
   }
 
   Future<bool> _confirmSkill(Map<String, dynamic> plan, String command) async {
@@ -115,8 +137,10 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
     return approved == true;
   }
 
-  void _showResponse(String text) {
-    if (mounted) setState(() => _response = text);
+  void _showResponse(String text, {bool speak = false}) {
+    if (!mounted) return;
+    setState(() => _response = text);
+    if (speak) _tts.speak(text);
   }
 
   Future<void> _editConnection() async {
@@ -152,6 +176,7 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
     if (speech.isListening) {
       speech.stopListening();
     } else if (speech.speechEnabled) {
+      _tts.stop();
       speech.startListening();
     }
   }
@@ -159,6 +184,7 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final speech = context.watch<SpeechController>();
+    final tts = context.watch<TtsController>();
     final isListening = speech.isListening;
 
     return Scaffold(
@@ -169,7 +195,13 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Header(isListening: isListening, onSettings: _editConnection, onCheck: _checkGateway),
+              _Header(
+                isListening: isListening,
+                voiceEnabled: tts.enabled,
+                onToggleVoice: tts.toggle,
+                onSettings: _editConnection,
+                onCheck: _checkGateway,
+              ),
               const SizedBox(height: 18),
               Expanded(
                 child: SingleChildScrollView(
@@ -224,7 +256,11 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      isListening ? 'LISTENING' : 'JARVIS STANDBY',
+                      isListening
+                          ? 'LISTENING'
+                          : tts.isSpeaking
+                              ? 'SPEAKING'
+                              : 'JARVIS STANDBY',
                       style: GoogleFonts.shareTech(
                         color: const Color(0xFF72F4FF),
                         letterSpacing: 3,
@@ -285,12 +321,12 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
               ]),
               const SizedBox(height: 10),
               Row(
-                children: const [
-                  _StatusCard(label: 'CORE', value: 'ONLINE'),
-                  SizedBox(width: 10),
-                  _StatusCard(label: 'VOICE', value: 'READY'),
-                  SizedBox(width: 10),
-                  _StatusCard(label: 'MODE', value: 'LOCAL'),
+                children: [
+                  const _StatusCard(label: 'CORE', value: 'ONLINE'),
+                  const SizedBox(width: 10),
+                  _StatusCard(label: 'VOICE', value: tts.enabled ? 'ON' : 'MUTED'),
+                  const SizedBox(width: 10),
+                  const _StatusCard(label: 'MODE', value: 'LOCAL'),
                 ],
               ),
               const SizedBox(height: 6),
@@ -309,9 +345,17 @@ class _JarvisState extends State<Jarvis> with SingleTickerProviderStateMixin {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.isListening, required this.onSettings, required this.onCheck});
+  const _Header({
+    required this.isListening,
+    required this.voiceEnabled,
+    required this.onToggleVoice,
+    required this.onSettings,
+    required this.onCheck,
+  });
 
   final bool isListening;
+  final bool voiceEnabled;
+  final VoidCallback onToggleVoice;
   final VoidCallback onSettings;
   final VoidCallback onCheck;
 
@@ -343,6 +387,14 @@ class _Header extends StatelessWidget {
           ],
         ),
         Row(children: [
+          IconButton(
+            onPressed: onToggleVoice,
+            icon: Icon(
+              voiceEnabled ? Icons.volume_up : Icons.volume_off,
+              color: const Color(0xFF72F4FF),
+            ),
+            tooltip: voiceEnabled ? 'Mute JARVIS voice' : 'Unmute JARVIS voice',
+          ),
           IconButton(
             onPressed: onCheck,
             icon: const Icon(Icons.sync, color: Color(0xFF72F4FF)),
